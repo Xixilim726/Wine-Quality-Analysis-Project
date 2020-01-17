@@ -1,7 +1,5 @@
 ---
 title: "Wine_EDA"
-author: "Xiyi Yan, Chongwu Ruan"
-date: "10/26/2019"
 output: html_document
 ---
 
