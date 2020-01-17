@@ -1,0 +1,156 @@
+---
+title: "Wine_EDA"
+author: "Xiyi Yan, Chongwu Ruan"
+date: "10/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preprocess and basic stats
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+
+#read data
+setwd("/Users/ruanchongwu/Desktop/MA\ Statistics/STAT\ 5291/winequality/")
+red<-read.csv("winequality-red.csv",sep = ";")
+white<-read.csv("winequality-white.csv",sep=";")
+dim(red) #1599*12
+dim(white) #4898*12
+
+red$wine_type<-"Red"
+white$wine_type<-"White"
+wine<-rbind(red,white)
+
+#check missing value
+na.count<-function(v){sum(is.na(v))}
+apply(red,2,na.count)
+apply(white,2,na.count)
+
+#summary stats
+summary(red)
+summary(white)
+```
+
+Two datasets are used in this project, including red(1599) and white(4898) vinho verde wine samples with 12 variables. There is no missing value in either of the datastes. The last column of both of the datasets is the quality of wine ranging from 3-9. 
+
+## Histograms of variables
+```{r}
+wine %>%
+  select(-quality) %>%
+  melt() %>%
+  ggplot(aes(value,fill=wine_type))+
+  facet_wrap(~variable,scales="free",nrow=4)+
+  geom_density(alpha=0.25)+
+  theme_minimal()+
+  labs(fill="Wine Type")+
+  ggtitle("Distribution of Varaibles by Wine Type")
+
+```
+ 
+Based on the denisty plots of the 11 varibles(exclude quality), **pH** and **sulphates** are closest to normal distribution. Most of the other variables have skewed distribution. By comparing the variable distributions of red and white wine, the variables with most different shapes of distribution include **volatile acidity, citric.acid,residual.sugar,free.sulfur.dioxide, total.sulfur.dioxide** and **density**.
+
+
+## Boxplots by Wine Type
+```{r}
+wine %>%
+  #select(-quality) %>%
+  melt() %>%
+  ggplot(aes(x=wine_type,y=value,fill=wine_type))+
+  facet_wrap(~variable,scales="free",nrow=4)+
+  geom_boxplot(alpha=0.25)+
+  coord_flip()+
+  xlab(label = "Wine Type")+
+  theme_minimal()+
+  labs(fill="Wine Type")+
+  ggtitle("Boxplots of Variables by Wine Type")
+```
+
+## Correlation heatmap of variables
+After explore the pair-wise scatter plot, we found that there is no strong linear relationship between variables. So we choose spearman correlaton coefficient for the heatmap.
+```{r}
+#Correlation heatmap
+wine$RorW<-ifelse(wine$wine_type=="Red",1,0) #Set Red=1,White=0 in order to do correlation matrix
+cor.matrix<-cor(wine[,-13], method = "spearman") 
+cor.matrix_melt<-melt(cor.matrix)
+ggplot(cor.matrix_melt,aes(x=Var1,y=Var2,fill=value))+
+  geom_tile()+
+  scale_fill_gradient(low="rosybrown2",high="royalblue4")+
+  ggtitle("Correlation Heatmap")+
+  theme(axis.text.x = element_text(angle = 45,hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+cor(wine[, c(-13, -14)], wine[, 14], method = "spearman")
+```
+
+Create a binary variable **RorW**: Red=1,White=0, to see what variable has the most correlation with wine type. Based on the heatmap of varible correlation,**volatile.acidity, fixed acidity,chlorides,total.sulfur.dioxide, sulphates** and **density** are most correlated to wine type, which mean these features may play an important role in distinguish red or white wine. However, there seems to be no variables related with quality in rank. Then we want to check which feature of wine has an association with quality. We will use anova or Kruskal-Wallis Test to test the association between quality group (low, medium and high) and wine features. (if we do not merge quality into quality group, since there is in total 7 quality, it is very likely that we will reject the null hypothesis).
+
+## explore the association between quality group and wine feature
+For ANOVA, we have to test the validity of the normality assumption. We use Q-Q plot to test.
+```{r}
+#quality 3,4->low quality=1, 5,6,7->medium quality=2, 8,9->high quality=3
+wine$quality_group = ifelse(wine$quality <= 4, 1, ifelse(wine$quality <= 7, 2, 3))
+
+par(mfrow = c(3, 4))
+for (v in colnames(wine)[1:11]) {
+  model = aov(as.formula(paste(c(v, "quality_group"), collapse = "~")), data = wine)
+  qqnorm(resid(model), main = v)
+}
+```
+
+As we can see from the plot, almost all the residuals do not obey normal distribution. We should use non-parametric method.
+
+```{r}
+par(mfrow = c(3, 4))
+for (v in colnames(wine)[1:11]) {
+  f = as.formula(paste(c(v, "quality_group"), collapse = "~"))
+  model = kruskal.test(f, data = wine)
+  print(model)
+  boxplot(f, data = wine)
+}
+```
+
+Except for PH, all the wine features has a strong association with quality group. For example, high quality wine tends to have low volatile.acidity and high alcohol. medium quality wine tends to have high residual sugar.
+
+## Proportion by wine type at each level of quality
+From now on, we will explore the difference between two types of wine.
+```{r}
+t<-table(wine$quality,wine$wine_type)
+prop.table<-round(100*prop.table(t,2),2)
+prop.table_melt<-melt(prop.table)
+
+ggplot(prop.table_melt,aes(x=factor(Var1),y=value,fill=factor(Var2)))+
+  geom_bar(alpha=0.5,stat="identity",position=position_dodge())+
+  scale_fill_manual(values=c('rosybrown2','royalblue4'))+
+  xlab("Quality")+
+  ylab("Percentage")+
+  theme_minimal()+
+  labs(fill="Wine Type")+
+  ggtitle("Proportion by Wine Type at each Level of Quality")
+```
+
+At each level of quality, divide the number of red and white wine by the total number of corresponding wine type to get the proportion of each type of wine at each quality. We can see that for both red and white wine, normal quality(5 and 6) has the most counts; low quality(3 and 4) and high quality(7 and 8 and 9) have much fewer counts. For high quality wines, red wines takes up more proportion. We will use permutation chi-square test to test if there is an association between wine quality and wine type.
+
+```{r}
+library(wPerm)
+perm.ind.test(melt(t))
+```
+
+So we can conclude that there is no association between wine quality and wine type.
+
+## explore difference between two types of wine
+As mentioned before, **volatile.acidity, fixed acidity,chlorides,total.sulfur.dioxide, sulphates** and **density** are most correlated to wine type. The rest of features shows no clear correlation with wine type. Here we will apply two group wilcoxon rank sum test to test if there exists any difference between two types in **citric.acid,residual.sugar,free.sulfur.dioxide,pH,alcohol**
+```{r}
+wilcox.test(red$citric.acid, white$citric.acid)
+wilcox.test(red$residual.sugar, white$residual.sugar)
+wilcox.test(red$free.sulfur.dioxide, white$free.sulfur.dioxide)
+wilcox.test(red$pH, white$pH)
+wilcox.test(red$alcohol, white$alcohol)
+```
+
+Combine the test result and the boxplot showed before, we can conclude that red wine has lower citric.acid, lower residual.sugar, lower free.sulfur.dioxide and higher pH value. And they show no difference in alcohol.
